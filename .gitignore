@@ -137,12 +137,14 @@ celerybeat.pid
 # Environments
 .env
 .envrc
-.venv
+.venv/
 env/
-venv/
 ENV/
 env.bak/
-venv.bak/
+
+# Model files (large)
+faster_rcnn_inception_v2_coco_2018_01_28*
+ssd_mobilenet_v2_coco_2018_03_29*
 
 # Spyder project settings
 .spyderproject
