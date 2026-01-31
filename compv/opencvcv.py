@@ -52,7 +52,6 @@ baseline_detections = []
 
 
 def iou(box1, box2):
-    """Calculate Intersection over Union between two boxes."""
     x1 = max(box1[0], box2[0])
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])
@@ -67,15 +66,11 @@ def iou(box1, box2):
 
 
 def is_person(class_id):
-    """Check if class_id represents a person."""
     return class_id == 0 or class_id == 1
 
 
 def overlaps_baseline(class_id, box, threshold=0.5):
-    """
-    Check if a detection overlaps with baseline.
-    Only compares against same category (person vs person, object vs object).
-    """
+
     for (base_class, x1, y1, x2, y2) in baseline_detections:
         # Only compare same category (person-to-person, object-to-object)
         if is_person(class_id) != is_person(base_class):
@@ -86,11 +81,6 @@ def overlaps_baseline(class_id, box, threshold=0.5):
 
 
 def get_detections(image, roi=None):
-    """
-    Get raw detections from image (without drawing).
-    
-    Returns list of (class_id, confidence, x1, y1, x2, y2)
-    """
     h, w = image.shape[:2]
     
     if roi is not None:
@@ -126,30 +116,30 @@ def get_detections(image, roi=None):
     return results
 
 
-def set_baseline(image, roi=None):
-    """
-    Set the baseline image. All detections in this image will be ignored in future detections.
-    """
+def set_baseline(images, roi=None):
     global baseline_detections
-    detections = get_detections(image, roi)
-    baseline_detections = [(class_id, x1, y1, x2, y2) for (class_id, _, x1, y1, x2, y2) in detections]
+    
+    # Handle single image or list of images
+    if not isinstance(images, list):
+        images = [images]
+    
+    baseline_detections = []
+    
+    for i, image in enumerate(images):
+        if image is None:
+            continue
+        detections = get_detections(image, roi)
+        new_baselines = [(class_id, x1, y1, x2, y2) for (class_id, _, x1, y1, x2, y2) in detections]
+        baseline_detections.extend(new_baselines)
+        print(f"Baseline image {i+1}: {len(new_baselines)} detection(s)")
     
     persons = sum(1 for (cid, *_) in baseline_detections if is_person(cid))
     objects = len(baseline_detections) - persons
-    print(f"Baseline set: {persons} person(s), {objects} object(s) to ignore")
+    print(f"Total baseline: {persons} person(s), {objects} object(s) to ignore")
     return baseline_detections
 
 
 def detect(image, roi=None, use_baseline=True):
-    """
-    Detect objects in image.
-    
-    Args:
-        image: Input image (BGR)
-        roi: Optional region of interest as (x1, y1, x2, y2) tuple.
-             If provided, only searches within this area.
-        use_baseline: If True, filter out detections that overlap with baseline.
-    """
     detections = get_detections(image, roi)
     
     for (class_id, confidence, x1, y1, x2, y2) in detections:
@@ -172,20 +162,170 @@ def detect(image, roi=None, use_baseline=True):
     return image
 
 
+def check_occupancy(image, roi=None, use_baseline=True):
+    
+    detections = get_detections(image, roi)
+    
+    persons = []
+    objects = []
+    
+    for (class_id, confidence, x1, y1, x2, y2) in detections:
+        if use_baseline and overlaps_baseline(class_id, (x1, y1, x2, y2)):
+            continue
+        
+        if is_person(class_id):
+            persons.append((confidence, x1, y1, x2, y2))
+        else:
+            objects.append((confidence, x1, y1, x2, y2))
+    
+    has_person = len(persons) > 0
+    has_object = len(objects) > 0
+    is_occupied = has_person or has_object
+    
+    details = {
+        "person_count": len(persons),
+        "object_count": len(objects),
+        "persons": persons,
+        "objects": objects
+    }
+    
+    return is_occupied, has_person, has_object, details
+
+
+def is_desk_empty(image, roi=None, use_baseline=True):
+    is_occupied, _, _, _ = check_occupancy(image, roi, use_baseline)
+    return not is_occupied
+
+
+def is_desk_occupied(image, roi=None, use_baseline=True):
+    is_occupied, _, _, _ = check_occupancy(image, roi, use_baseline)
+    return is_occupied
+
+
+def detect_video(input_path, output_path, baseline_imgs=None, roi=None, skip_frames=0, scale=0.5):
+    if baseline_imgs is not None:
+        set_baseline(baseline_imgs, roi)
+    
+    cap = cv2.VideoCapture(input_path)
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open video {input_path}")
+        return
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    orig_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    orig_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Compressed dimensions
+    width = int(orig_width * scale)
+    height = int(orig_height * scale)
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    frame_count = 0
+    processed = 0
+    
+    print(f"Processing: {total_frames} frames @ {fps:.1f} FPS")
+    print(f"Input: {orig_width}x{orig_height} -> Output: {width}x{height} (scale={scale})")
+    print(f"Model: {MODEL}, skip_frames={skip_frames}")
+    
+    last_result = None
+    last_status = None
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Resize frame for compression
+        frame = cv2.resize(frame, (width, height))
+        
+        frame_count += 1
+        
+        if skip_frames == 0 or frame_count % (skip_frames + 1) == 1:
+            # Check occupancy
+            is_occupied, has_person, has_object, details = check_occupancy(
+                frame.copy(), roi, use_baseline=baseline_imgs is not None
+            )
+            
+            # Draw detections
+            result = detect(frame.copy(), roi, use_baseline=baseline_imgs is not None)
+            
+            # Add status overlay
+            if is_occupied:
+                status = "OCCUPIED"
+                if has_person and has_object:
+                    status += " (person + objects)"
+                elif has_person:
+                    status += " (person)"
+                else:
+                    status += " (objects only)"
+                status_color = (0, 0, 255)  # Red
+            else:
+                status = "EMPTY"
+                status_color = (0, 255, 0)  # Green
+            
+            cv2.putText(result, status, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, status_color, 2)
+            
+            last_result = result
+            last_status = (is_occupied, has_person, has_object)
+            processed += 1
+            
+            # Print status changes
+            if last_status != (is_occupied, has_person, has_object):
+                print(f"  Frame {frame_count}: {status}")
+        else:
+            # Reuse last detection overlay on current frame
+            result = frame if last_result is None else last_result
+        
+        out.write(result)
+        
+        if frame_count % 100 == 0:
+            print(f"  {frame_count}/{total_frames} ({100*frame_count/total_frames:.1f}%)")
+    
+    cap.release()
+    out.release()
+    print(f"Done! {processed} frames processed -> {output_path}")
+
+
 if __name__ == "__main__":
-    BASELINE = os.path.join(SCRIPT_DIR, "images/desk.png")
-    INPUT  = os.path.join(SCRIPT_DIR, "images/clyde.png")
-    OUTPUT = os.path.join(SCRIPT_DIR, "images/output.png")
-
-    # Set baseline (objects to ignore)
-    baseline_img = cv2.imread(BASELINE)
-    if baseline_img is not None:
-        set_baseline(baseline_img)
+    import sys
+    
+    # Two baseline images: with chair and without chair
+    BASELINE_WITH_CHAIR = os.path.join(SCRIPT_DIR, "images/desk.png")
+    BASELINE_WITHOUT_CHAIR = os.path.join(SCRIPT_DIR, "images/deskonly.png")
+    
+    if len(sys.argv) > 1:
+        INPUT = sys.argv[1]
     else:
-        print(f"Warning: Could not load baseline {BASELINE}")
-
-    # Detect new objects (filtering out baseline)
-    image = cv2.imread(INPUT)
-    result = detect(image)
-    cv2.imwrite(OUTPUT, result)
-    print(f"Saved to {OUTPUT}")
+        INPUT = os.path.join(SCRIPT_DIR, "videos/checker.mp4")
+    
+    video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+    ext = os.path.splitext(INPUT)[1].lower()
+    
+    # Load both baseline images
+    baseline_imgs = []
+    for path in [BASELINE_WITH_CHAIR, BASELINE_WITHOUT_CHAIR]:
+        img = cv2.imread(path)
+        if img is not None:
+            print(f"Loaded baseline: {path}")
+            baseline_imgs.append(img)
+        else:
+            print(f"Warning: Could not load {path}")
+    
+    if ext in video_exts:
+        OUTPUT = os.path.splitext(INPUT)[0] + "_detected.mp4"
+        detect_video(INPUT, OUTPUT, baseline_imgs if baseline_imgs else None, skip_frames=3, scale=0.5)
+    else:
+        OUTPUT = os.path.splitext(INPUT)[0] + "_detected.png"
+        if baseline_imgs:
+            set_baseline(baseline_imgs)
+        image = cv2.imread(INPUT)
+        if image is None:
+            print(f"Error: Could not read {INPUT}")
+        else:
+            result = detect(image)
+            cv2.imwrite(OUTPUT, result)
