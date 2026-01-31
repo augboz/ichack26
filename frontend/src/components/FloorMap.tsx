@@ -83,7 +83,7 @@ function ZoneLabel({ label, x, y }: { label: string; x: number; y: number }) {
   );
 }
 
-export function FloorMap() {
+export function FloorMap({ seats }: { seats: Seat[] }) {
   const freeCount = seats.filter((s) => !s.occupied).length;
   const occupiedCount = seats.filter((s) => s.occupied).length;
 

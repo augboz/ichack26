@@ -24,7 +24,7 @@ class TableStatusTracker:
             
     def send_updates(self):
         # Check if it's time to send updates
-        if self.update_rate == 0 or self.update_counter > self.update_rate:
+        if self.update_rate == 0 or self.update_counter >= self.update_rate:
             updates = {} 
             for table_id, sample_deque in self.samples.items():
                 occupied_count = sum(sample_deque) 
