@@ -10,7 +10,7 @@ class OccupancyDatabase:
     """Simple database interface for occupancy tracking."""
 
     def __init__(self, host="localhost", database="occupancy_db",
-                 user="root", password=""):
+                 user="root", password="yazool921"):
         """Initialize database connection."""
         self.conn = mysql.connector.connect(
             host=host,
@@ -48,29 +48,29 @@ class OccupancyDatabase:
         finally:
             cur.close()
 
-    def get_tables_for_camera(self, camera_id: int) -> List[Dict]:
-        """Get all tables for a camera."""
+    def get_desks_for_camera(self, camera_id: int) -> List[Dict]:
+        """Get all desks for a camera."""
         cur = self.conn.cursor(dictionary=True)
         try:
             cur.execute(
-                'SELECT * FROM Tables WHERE camera_id = %s ORDER BY table_id',
+                'SELECT * FROM Desks WHERE camera_id = %s ORDER BY desk_id',
                 (camera_id,)
             )
             return cur.fetchall()
         finally:
             cur.close()
     
-    def add_table(self, camera_id: int, space_id: int, name: str,
-                  bottom_left_x: int, bottom_left_y: int,
-                  bottom_right_x: int, bottom_right_y: int,
-                  top_left_x: int, top_left_y: int,
-                  top_right_x: int, top_right_y: int,
-                  capacity: int = 1) -> int:
-        """Add a new table. Returns the new table_id."""
+    def add_desk(self, camera_id: int, space_id: int, name: str,
+                 bottom_left_x: int, bottom_left_y: int,
+                 bottom_right_x: int, bottom_right_y: int,
+                 top_left_x: int, top_left_y: int,
+                 top_right_x: int, top_right_y: int,
+                 capacity: int = 1) -> int:
+        """Add a new desk. Returns the new desk_id."""
         cur = self.conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO Tables (
+                INSERT INTO Desks (
                     camera_id, space_id, name, capacity,
                     bottom_left_x, bottom_left_y,
                     bottom_right_x, bottom_right_y,
@@ -88,14 +88,14 @@ class OccupancyDatabase:
         finally:
             cur.close()
 
-    def add_log(self, table_id: int, is_occupied: bool) -> int:
+    def add_log(self, desk_id: int, is_occupied: bool) -> int:
         """Add occupancy log. Returns the new log_id."""
         cur = self.conn.cursor()
         try:
             cur.execute("""
-                INSERT INTO Table_Occupancy_Logs (table_id, is_occupied)
+                INSERT INTO Desk_Occupancy_Logs (desk_id, is_occupied)
                 VALUES (%s, %s)
-            """, (table_id, is_occupied))
+            """, (desk_id, is_occupied))
             self.conn.commit()
             return cur.lastrowid
         finally:
@@ -118,10 +118,10 @@ if __name__ == "__main__":
     # Use it
     spaces = db.get_all_spaces()
     cameras = db.get_cameras_for_space(space_id=1)
-    tables = db.get_tables_for_camera(camera_id=1)
+    desks = db.get_desks_for_camera(camera_id=1)
 
     # Add a log
-    db.add_log(table_id=1, is_occupied=True)
+    db.add_log(desk_id=1, is_occupied=True)
 
     # Close when done
     db.close()

@@ -10,8 +10,8 @@
 -- ============================================================================
 
 -- Drop tables if they exist (in reverse order of dependencies)
-DROP TABLE IF EXISTS Table_Occupancy_Logs;
-DROP TABLE IF EXISTS Tables;
+DROP TABLE IF EXISTS Desk_Occupancy_Logs;
+DROP TABLE IF EXISTS Desks;
 DROP TABLE IF EXISTS Camera;
 DROP TABLE IF EXISTS Space;
 
@@ -19,6 +19,8 @@ DROP TABLE IF EXISTS Space;
 -- SPACE TABLE
 -- ============================================================================
 -- Represents physical study spaces (e.g., library floors, study rooms)
+USE occupancy_db;
+
 CREATE TABLE Space (
     space_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -49,10 +51,10 @@ CREATE TABLE Camera (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================================
--- TABLE
+-- DESK
 -- ============================================================================
-CREATE TABLE Tables (
-    table_id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE Desks (
+    desk_id INT AUTO_INCREMENT PRIMARY KEY,
     camera_id INT NOT NULL,
     space_id INT NOT NULL,
     name VARCHAR(50) NOT NULL,
@@ -84,15 +86,15 @@ CREATE TABLE Tables (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================================
--- TABLE OCCUPANCY LOGS
+-- DESK OCCUPANCY LOGS
 -- ============================================================================
-CREATE TABLE Table_Occupancy_Logs (
+CREATE TABLE Desk_Occupancy_Logs (
     log_id INT AUTO_INCREMENT PRIMARY KEY,
-    table_id INT NOT NULL,
+    desk_id INT NOT NULL,
     is_occupied BOOLEAN NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_log_table FOREIGN KEY (table_id) REFERENCES Tables(table_id) ON DELETE CASCADE
+    CONSTRAINT fk_log_desk FOREIGN KEY (desk_id) REFERENCES Desks(desk_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================================
@@ -105,11 +107,11 @@ CREATE INDEX idx_space_name ON Space(name);
 CREATE INDEX idx_camera_space ON Camera(space_id);
 CREATE INDEX idx_camera_active ON Camera(is_active);
 
--- Table indexes
-CREATE INDEX idx_table_camera ON Tables(camera_id);
-CREATE INDEX idx_table_space ON Tables(space_id);
+-- Desk indexes
+CREATE INDEX idx_desk_camera ON Desks(camera_id);
+CREATE INDEX idx_desk_space ON Desks(space_id);
 
--- Table_Occupancy_Logs indexes
-CREATE INDEX idx_logs_table_time ON Table_Occupancy_Logs(table_id, timestamp DESC);
-CREATE INDEX idx_logs_timestamp ON Table_Occupancy_Logs(timestamp DESC);
-CREATE INDEX idx_logs_occupied ON Table_Occupancy_Logs(is_occupied);
+-- Desk_Occupancy_Logs indexes
+CREATE INDEX idx_logs_desk_time ON Desk_Occupancy_Logs(desk_id, timestamp DESC);
+CREATE INDEX idx_logs_timestamp ON Desk_Occupancy_Logs(timestamp DESC);
+CREATE INDEX idx_logs_occupied ON Desk_Occupancy_Logs(is_occupied);
