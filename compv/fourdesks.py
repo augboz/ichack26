@@ -16,7 +16,7 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Choose model: "ssd" or "fasterrcnn"
-MODEL = "ssd"
+MODEL = "fasterrcnn"
 
 if MODEL == "ssd":
     CONFIG  = os.path.join(SCRIPT_DIR, "ssd_mobilenet_v2_coco_2018_03_29.pbtxt")
@@ -27,7 +27,7 @@ else:  # fasterrcnn
     WEIGHTS = os.path.join(SCRIPT_DIR, "faster_rcnn_inception_v2_coco_2018_01_28.pb")
     INPUT_SIZE = (800, 600)
 
-CONFIDENCE_THRESHOLD = 0.25
+CONFIDENCE_THRESHOLD = 0.5
 
 # COCO class labels (90 classes)
 CLASSES = [
@@ -50,25 +50,38 @@ net = cv2.dnn.readNetFromTensorflow(WEIGHTS, CONFIG)
 # Format: dict of desk_id -> list of (class_id, x1, y1, x2, y2)
 baseline_detections = {}
 
-# Image dimensions for tables_grid.jpg: 3024 x 3795
-IMG_WIDTH = 3024
-IMG_HEIGHT = 3795
+# Current image/video dimensions (set dynamically)
+IMG_WIDTH = None
+IMG_HEIGHT = None
 
-# Define the 4 desk ROIs as (x1, y1, x2, y2) - equal quadrants
-# Full desk area (for person detection)
-DESK_ROIS = {
-    1: (0, 0, IMG_WIDTH // 2, IMG_HEIGHT // 2),                          # Top-left
-    2: (IMG_WIDTH // 2, 0, IMG_WIDTH, IMG_HEIGHT // 2),                  # Top-right
-    3: (0, IMG_HEIGHT // 2, IMG_WIDTH // 2, IMG_HEIGHT),                 # Bottom-left
-    4: (IMG_WIDTH // 2, IMG_HEIGHT // 2, IMG_WIDTH, IMG_HEIGHT)          # Bottom-right
-}
+# Cached ROIs (recomputed when dimensions change)
+DESK_ROIS = {}
+TABLE_ROIS = {}
 
-# Table surface ROIs (smaller area, for object detection only)
-# Per-desk margins since desks have different orientations
-# Desk 1 & 2 (top row): table at bottom of quadrant
-# Desk 3 & 4 (bottom row): table at top of quadrant
+TABLE_MARGIN_OUTER = 0.2
 
-TABLE_MARGIN_OUTER = 0.34  
+def update_dimensions(width, height):
+    """Update ROIs based on actual image/video dimensions."""
+    global IMG_WIDTH, IMG_HEIGHT, DESK_ROIS, TABLE_ROIS
+    
+    if IMG_WIDTH == width and IMG_HEIGHT == height:
+        return  # No change needed
+    
+    IMG_WIDTH = width
+    IMG_HEIGHT = height
+    
+    # Define the 4 desk ROIs as (x1, y1, x2, y2) - equal quadrants
+    DESK_ROIS = {
+        1: (0, 0, IMG_WIDTH // 2, IMG_HEIGHT // 2),                          # Top-left
+        2: (IMG_WIDTH // 2, 0, IMG_WIDTH, IMG_HEIGHT // 2),                  # Top-right
+        3: (0, IMG_HEIGHT // 2, IMG_WIDTH // 2, IMG_HEIGHT),                 # Bottom-left
+        4: (IMG_WIDTH // 2, IMG_HEIGHT // 2, IMG_WIDTH, IMG_HEIGHT)          # Bottom-right
+    }
+    
+    # Compute table ROIs
+    TABLE_ROIS = {did: get_table_roi(did) for did in DESK_ROIS}
+    print(f"ROIs updated for {width}x{height}")
+
 
 def get_table_roi(desk_id):
     x1, y1, x2, y2 = DESK_ROIS[desk_id]
@@ -89,13 +102,11 @@ def get_table_roi(desk_id):
         ty1 = y1 + int(h * 0.3)  # Skip top 30%
         ty2 = y2
     else:
-        # Bottom row desks: crop bottom 30%, table at top
+        # Bottom row desks: use full height (object could be anywhere)
         ty1 = y1
-        ty2 = y2 - int(h * 0.3)  # Skip bottom 30%
+        ty2 = y2
     
     return (tx1, ty1, tx2, ty2)
-
-TABLE_ROIS = {did: get_table_roi(did) for did in DESK_ROIS}
 
 
 def iou(box1, box2):
@@ -143,7 +154,19 @@ def get_detections(image, roi=None):
         crop_h, crop_w = h, w
         rx1, ry1 = 0, 0
 
-    blob = cv2.dnn.blobFromImage(cropped, size=INPUT_SIZE, swapRB=True, crop=False)
+    # Pre-resize to model input size for efficiency (optional)
+    # This reduces memory usage and speeds up inference for large images
+    target_w, target_h = INPUT_SIZE
+    if crop_w > target_w * 1.5 or crop_h > target_h * 1.5:
+        # Resize while maintaining aspect ratio
+        scale_factor = min(target_w / crop_w, target_h / crop_h)
+        new_w = int(crop_w * scale_factor)
+        new_h = int(crop_h * scale_factor)
+        resized = cv2.resize(cropped, (new_w, new_h))
+        blob = cv2.dnn.blobFromImage(resized, size=INPUT_SIZE, swapRB=True, crop=False)
+    else:
+        blob = cv2.dnn.blobFromImage(cropped, size=INPUT_SIZE, swapRB=True, crop=False)
+    
     net.setInput(blob)
     detections = net.forward()
 
@@ -171,6 +194,17 @@ def set_baseline(images, desk_id=None):
     # Handle single image or list of images
     if not isinstance(images, list):
         images = [images]
+    
+    # Resize baseline images to match current dimensions
+    resized_images = []
+    for image in images:
+        if image is None:
+            continue
+        h, w = image.shape[:2]
+        if w != IMG_WIDTH or h != IMG_HEIGHT:
+            image = cv2.resize(image, (IMG_WIDTH, IMG_HEIGHT))
+        resized_images.append(image)
+    images = resized_images
     
     if desk_id is not None:
         # Set baseline for specific desk
@@ -331,9 +365,6 @@ def is_desk_occupied(image, desk_id, use_baseline=True):
 
 
 def detect_video(input_path, output_path, baseline_imgs=None, skip_frames=0, scale=1.0):
-    if baseline_imgs is not None:
-        set_baseline(baseline_imgs)  # Sets baseline for all desks
-    
     cap = cv2.VideoCapture(input_path)
     
     if not cap.isOpened():
@@ -348,6 +379,12 @@ def detect_video(input_path, output_path, baseline_imgs=None, skip_frames=0, sca
     # Compressed dimensions
     width = int(orig_width * scale)
     height = int(orig_height * scale)
+    
+    # Update ROIs for video dimensions (after scaling)
+    update_dimensions(width, height)
+    
+    if baseline_imgs is not None:
+        set_baseline(baseline_imgs)  # Sets baseline for all desks
     
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -423,7 +460,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         INPUT = sys.argv[1]
     else:
-        INPUT = os.path.join(SCRIPT_DIR, "images_4grid/tables_grid.jpg")
+        INPUT = os.path.join(SCRIPT_DIR, "images_4grid/filled.jpg")
     
     # Baseline image (empty desks reference)
     BASELINE_PATH = os.path.join(SCRIPT_DIR, "images_4grid/tables_reference.jpg")
@@ -437,22 +474,37 @@ if __name__ == "__main__":
         baseline_img = cv2.imread(BASELINE_PATH)
         if baseline_img is not None:
             print(f"Loaded baseline: {BASELINE_PATH}")
+            # Resize baseline to match video if needed (handled in set_baseline)
             baseline_imgs = [baseline_img]
     
     if ext in video_exts:
         OUTPUT = os.path.splitext(INPUT)[0] + "_detected.mp4"
-        detect_video(INPUT, OUTPUT, baseline_imgs, skip_frames=3, scale=0.5)
+        detect_video(INPUT, OUTPUT, baseline_imgs, skip_frames=30, scale=1)
     else:
         OUTPUT = os.path.splitext(INPUT)[0] + "_detected.jpg"
         
-        # Set baseline for all 4 desks
-        if baseline_imgs:
-            set_baseline(baseline_imgs)
+        # Image scale factor (1.0 = full res, 0.5 = half, etc.)
+        IMAGE_SCALE = 0.4
         
         image = cv2.imread(INPUT)
         if image is None:
             print(f"Error: Could not read {INPUT}")
         else:
+            # Downsample image
+            if IMAGE_SCALE != 1.0:
+                h, w = image.shape[:2]
+                new_w, new_h = int(w * IMAGE_SCALE), int(h * IMAGE_SCALE)
+                image = cv2.resize(image, (new_w, new_h))
+                print(f"Scaled: {w}x{h} -> {new_w}x{new_h}")
+            
+            # Update ROIs for image dimensions
+            h, w = image.shape[:2]
+            update_dimensions(w, h)
+            
+            # Set baseline for all 4 desks (after dimensions are set)
+            if baseline_imgs:
+                set_baseline(baseline_imgs)
+            
             # Check occupancy for all desks
             print("\n=== Desk Occupancy ===")
             occupancy = check_all_desks(image, use_baseline=baseline_imgs is not None)
