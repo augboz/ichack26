@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(git diff-tree:*)",
+      "Bash(xargs:*)",
+      "Read(//c/Users/mustafa/Documents/ichack/ichack26/**)",
+      "Bash(sort:*)"
     ]
   }
 }
