@@ -400,7 +400,7 @@ def get_trect_map(camera_id):
 # ============================================================================
 
 # Configuration
-SAMPLES_PER_WINDOW = 10      # Number of samples to collect before making a decision
+SAMPLES_PER_WINDOW = 2      # Number of samples to collect before making a decision
 OCCUPANCY_THRESHOLD = 0.5    # If >= 50% of samples are occupied, classify as occupied
 
 # Sample buffer: {desk_id: [list of boolean samples]}
@@ -491,11 +491,10 @@ def add_sample_to_buffer(tid_occ_list):
 
 def flush_buffer_to_database():
     """
-    Process the buffered samples and write aggregated results to database.
-    Only writes when state has changed from last committed state.
+    Process the buffered samples and write all results to database.
     Clears the buffer after processing.
     """
-    global desk_sample_buffer, last_committed_states
+    global desk_sample_buffer
 
     if not desk_sample_buffer:
         return
@@ -507,15 +506,10 @@ def flush_buffer_to_database():
             host="localhost",
             database="occupancy_db",
             user="root",
-            password="yazool921"  # Update with actual password
+            password="yazool921"
         )
 
         try:
-            changes_logged = 0
-            state_changes = []
-            desk_summaries = []
-
-            # Process each desk's buffered samples
             for desk_id, samples in desk_sample_buffer.items():
                 if not samples:
                     continue
@@ -524,40 +518,15 @@ def flush_buffer_to_database():
                 occupied_count = sum(1 for s in samples if s)
                 total_count = len(samples)
                 occupancy_ratio = occupied_count / total_count
-
-                # Classify based on threshold
                 is_occupied = occupancy_ratio >= OCCUPANCY_THRESHOLD
 
-                # Check if state changed from last committed state
-                last_state = last_committed_states.get(desk_id)
-
-                # Track summary for this desk
-                desk_summaries.append({
-                    'id': desk_id,
-                    'occupied': occupied_count,
-                    'total': total_count,
-                    'ratio': occupancy_ratio,
-                    'state': is_occupied,
-                    'changed': last_state is None or last_state != is_occupied
-                })
-
-                if last_state is None or last_state != is_occupied:
-                    # State changed - write to database
-                    try:
-                        db.add_log(desk_id, is_occupied)
-                        last_committed_states[desk_id] = is_occupied
-                        changes_logged += 1
-                        state_str = "OCCUPIED" if is_occupied else "EMPTY"
-                        state_changes.append(f"Desk {desk_id}: {state_str} ({occupied_count}/{total_count})")
-                    except Exception as e:
-                        print(f"Error logging desk {desk_id}: {e}")
-
-            # Print debug info for desks 1-4 only
-            for desk_id in [1, 2, 3, 4]:
-                for summary in desk_summaries:
-                    if summary['id'] == desk_id:
-                        print(f"Desk {desk_id}: {summary['occupied']}/{summary['total']}")
-                        break
+                # Always write to database
+                try:
+                    db.add_log(desk_id, is_occupied)
+                    state_str = "OCCUPIED" if is_occupied else "EMPTY"
+                    print(f"Desk {desk_id}: {state_str} ({occupied_count}/{total_count})", flush=True)
+                except Exception as e:
+                    print(f"Error logging desk {desk_id}: {e}")
 
         finally:
             db.close()
@@ -566,7 +535,6 @@ def flush_buffer_to_database():
         print(f"Error flushing buffer to database: {e}")
 
     finally:
-        # Clear the buffer for next window
         desk_sample_buffer.clear()
 
 # get camera ids.
@@ -678,26 +646,54 @@ def process_camera(camera):
 
     if camera > 6:
         # Use fourdesks.py with fourdesks.jpg for cameras with ID > 6
-        image = get_image_from_file(camera, os.path.join(SCRIPT_DIR, "fourdesks.jpg"))
-        if image is not None:
+        try:
+            INPUT = os.path.join(SCRIPT_DIR, "fourdesks.jpg")
+            image = cv2.imread(INPUT)
+            if image is None:
+                print(f"Error: Could not read {INPUT}")
+                return
+
+            IMAGE_SCALE = 0.4
+            h, w = image.shape[:2]
+            new_w, new_h = int(w * IMAGE_SCALE), int(h * IMAGE_SCALE)
+            image = cv2.resize(image, (new_w, new_h))
+
             h, w = image.shape[:2]
             fourdesks.update_dimensions(w, h)
 
-            # Get mapping from fourdesks local IDs to actual desk IDs
+            BASELINE_PATH = os.path.join(SCRIPT_DIR, "images_4grid/tables_reference.jpg")
+            baseline_imgs = None
+            if os.path.exists(BASELINE_PATH):
+                baseline_img = cv2.imread(BASELINE_PATH)
+                if baseline_img is not None:
+                    baseline_imgs = [baseline_img]
+                    fourdesks.set_baseline(baseline_imgs)
+
+            occupancy = fourdesks.check_all_desks(image, use_baseline=baseline_imgs is not None)
+
+            # Print desk occupancy status
+            occupied = [d for d, occ in occupancy.items() if occ]
+            empty = [d for d, occ in occupancy.items() if not occ]
+            print(f"Occupied: {occupied}  Empty: {empty}", flush=True)
+
             local_to_desk_id = get_fourdesks_desk_mapping(camera)
+            print(f"Desk mapping for camera {camera}: {local_to_desk_id}", flush=True)
 
             if local_to_desk_id:
-                # Check occupancy using fourdesks (returns {1: bool, 2: bool, 3: bool, 4: bool})
-                occupancy_results = fourdesks.check_all_desks(image, use_baseline=False)
-
-                # Map results to actual desk IDs
                 tid_occ_list = []
-                for local_id, is_occupied in occupancy_results.items():
+                for local_id, is_occupied in occupancy.items():
                     if local_id in local_to_desk_id:
                         actual_desk_id = local_to_desk_id[local_id]
                         tid_occ_list.append((actual_desk_id, is_occupied))
-
+                print(f"Buffering: {tid_occ_list}", flush=True)
                 add_sample_to_buffer(tid_occ_list)
+            else:
+                print(f"WARNING: No desk mapping found for camera {camera}!", flush=True)
+
+        except Exception as e:
+            print(f"Error processing fourdesks camera {camera}: {e}")
+            import traceback
+            traceback.print_exc()
     else:
         # Use standard polygon-based detection for cameras with ID <= 6
         image = get_image(camera)
@@ -750,8 +746,19 @@ if __name__ == "__main__":
                     time.sleep(5.0)
                     continue
 
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    executor.map(process_camera, cameras)
+                # Separate regular cameras from fourdesks cameras
+                # fourdesks has global state - must process sequentially
+                regular_cameras = [c for c in cameras if c <= 6]
+                fourdesks_cameras = [c for c in cameras if c > 6]
+
+                # Process regular cameras in parallel (thread-safe SSD model)
+                if regular_cameras:
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        executor.map(process_camera, regular_cameras)
+
+                # Process fourdesks cameras sequentially (global state not thread-safe)
+                for camera in fourdesks_cameras:
+                    process_camera(camera)
 
                 sample_count += 1
 
