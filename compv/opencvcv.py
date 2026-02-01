@@ -27,7 +27,7 @@ else:  # fasterrcnn
     WEIGHTS = os.path.join(SCRIPT_DIR, "faster_rcnn_inception_v2_coco_2018_01_28.pb")
     INPUT_SIZE = (800, 600)
 
-CONFIDENCE_THRESHOLD = 0.3
+CONFIDENCE_THRESHOLD = 0.25
 
 # COCO class labels (90 classes)
 CLASSES = [
