@@ -59,15 +59,25 @@ def main():
     db = OccupancyDatabase()
 
     try:
-        # Insert space
         cur = db.conn.cursor()
+
+        # Insert building first
         cur.execute("""
-            INSERT INTO Space (name, building, total_capacity)
-            VALUES (%s, %s, %s)
-        """, ('Test Library', 'Test Building', 10))
+            INSERT INTO Building (name, address)
+            VALUES (%s, %s)
+        """, ('Test Building', 'Test Address'))
+        db.conn.commit()
+        building_id = cur.lastrowid
+        print(f"\nCreated building with ID: {building_id}")
+
+        # Insert space
+        cur.execute("""
+            INSERT INTO Space (name, building_id, total_capacity, grid_width, grid_height)
+            VALUES (%s, %s, %s, %s, %s)
+        """, ('Test Library', building_id, 10, 10, 10))
         db.conn.commit()
         space_id = cur.lastrowid
-        print(f"\nCreated space with ID: {space_id}")
+        print(f"Created space with ID: {space_id}")
 
         # Insert camera
         cur.execute("""
@@ -81,20 +91,22 @@ def main():
         # Insert desk
         cur.execute("""
             INSERT INTO Desks (
-                camera_id, space_id, name, capacity,
+                camera_id, space_id, name, capacity, zone,
                 bottom_left_x, bottom_left_y,
                 bottom_right_x, bottom_right_y,
                 top_right_x, top_right_y,
                 top_left_x, top_left_y,
+                grid_x, grid_y,
                 is_active
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            camera_id, space_id, 'Desk 1', 1,
+            camera_id, space_id, 'Desk 1', 1, 'Tables 1–4',
             desk_coords['bottom_left'][0], desk_coords['bottom_left'][1],
             desk_coords['bottom_right'][0], desk_coords['bottom_right'][1],
             desk_coords['top_right'][0], desk_coords['top_right'][1],
             desk_coords['top_left'][0], desk_coords['top_left'][1],
+            0, 0,  # grid_x, grid_y (default to 0,0 for test)
             True
         ))
         db.conn.commit()

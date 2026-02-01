@@ -65,24 +65,27 @@ class OccupancyDatabase:
                  bottom_right_x: int, bottom_right_y: int,
                  top_left_x: int, top_left_y: int,
                  top_right_x: int, top_right_y: int,
-                 capacity: int = 1) -> int:
+                 grid_x: int, grid_y: int,
+                 capacity: int = 1, zone: str = None) -> int:
         """Add a new desk. Returns the new desk_id."""
         cur = self.conn.cursor()
         try:
             cur.execute("""
                 INSERT INTO Desks (
-                    camera_id, space_id, name, capacity,
+                    camera_id, space_id, name, capacity, zone,
                     bottom_left_x, bottom_left_y,
                     bottom_right_x, bottom_right_y,
                     top_left_x, top_left_y,
-                    top_right_x, top_right_y
+                    top_right_x, top_right_y,
+                    grid_x, grid_y
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (camera_id, space_id, name, capacity,
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (camera_id, space_id, name, capacity, zone,
                   bottom_left_x, bottom_left_y,
                   bottom_right_x, bottom_right_y,
                   top_left_x, top_left_y,
-                  top_right_x, top_right_y))
+                  top_right_x, top_right_y,
+                  grid_x, grid_y))
             self.conn.commit()
             return cur.lastrowid
         finally:
