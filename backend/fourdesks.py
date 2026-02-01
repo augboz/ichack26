@@ -460,7 +460,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         INPUT = sys.argv[1]
     else:
-        INPUT = os.path.join(SCRIPT_DIR, "images_4grid/filled.jpg")
+        INPUT = os.path.join(SCRIPT_DIR, "fourdesks.jpg")
     
     # Baseline image (empty desks reference)
     BASELINE_PATH = os.path.join(SCRIPT_DIR, "images_4grid/tables_reference.jpg")

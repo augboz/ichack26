@@ -38,7 +38,7 @@ INSERT INTO Desks (
     grid_x, grid_y, is_active
 ) VALUES (
     @camera_id_1, @space_id_1, 'F1-D1', 1, 'Floor 1 Study Area',
-    1, 670, 500, 670, 20, 1062, 500, 1062,
+    80, 200, 100, 1600, 1400, 100, 1400, 1600,
     0, 0, TRUE
 );
 
@@ -50,7 +50,7 @@ INSERT INTO Desks (
     grid_x, grid_y, is_active
 ) VALUES (
     @camera_id_1, @space_id_1, 'F1-D2', 1, 'Floor 1 Study Area',
-    10, 600, 500, 600, 10, 10, 500, 10,
+    1600, 200, 1600, 1600, 2800, 300, 2700, 1600,
     1, 0, TRUE
 );
 
@@ -62,7 +62,7 @@ INSERT INTO Desks (
     grid_x, grid_y, is_active
 ) VALUES (
     @camera_id_1, @space_id_1, 'F1-D3', 1, 'Floor 1 Study Area',
-    550, 248, 900, 253, 900, 610, 550, 610,
+    130, 1800, 1300, 1900, 160, 3200, 1300, 3200,
     0, 1, TRUE
 );
 
@@ -74,7 +74,7 @@ INSERT INTO Desks (
     grid_x, grid_y, is_active
 ) VALUES (
     @camera_id_1, @space_id_1, 'F1-D4', 1, 'Floor 1 Study Area',
-    560, 680, 550, 1070, 900, 1100, 900, 700,
+    1600, 2000, 2800, 2000, 1600, 3200, 2800, 3200,
     1, 1, TRUE
 );
 
@@ -96,10 +96,10 @@ INSERT INTO Desks (
     top_left_x, top_left_y, top_right_x, top_right_y,
     grid_x, grid_y, is_active
 ) VALUES
-(@camera_id_2, @space_id_2, 'F2-D1', 1, 'Floor 2 Study Area', 500, 670, 1, 670, 20, 1062, 500, 1062, 0, 0, TRUE),
-(@camera_id_2, @space_id_2, 'F2-D2', 1, 'Floor 2 Study Area', 500, 600, 10, 600, 10, 10, 500, 10, 1, 0, TRUE),
-(@camera_id_2, @space_id_2, 'F2-D3', 1, 'Floor 2 Study Area', 550, 248, 900, 253, 900, 610, 550, 610, 0, 1, TRUE),
-(@camera_id_2, @space_id_2, 'F2-D4', 1, 'Floor 2 Study Area', 560, 680, 550, 1070, 900, 1100, 900, 700, 1, 1, TRUE);
+(@camera_id_2, @space_id_2, 'F2-D1', 1, 'Floor 2 Study Area', 80, 200, 100, 1600, 1400, 100, 1400, 1600, 0, 0, TRUE),
+(@camera_id_2, @space_id_2, 'F2-D2', 1, 'Floor 2 Study Area', 1600, 200, 1600, 1600, 2800, 300, 2700, 1600, 1, 0, TRUE),
+(@camera_id_2, @space_id_2, 'F2-D3', 1, 'Floor 2 Study Area', 130, 1800, 1300, 1900, 160, 3200, 1300, 3200, 0, 1, TRUE),
+(@camera_id_2, @space_id_2, 'F2-D4', 1, 'Floor 2 Study Area', 1600, 2000, 2800, 2000, 1600, 3200, 2800, 3200, 1, 1, TRUE);
 
 -- ============================================================================
 -- FLOOR 3
@@ -119,10 +119,10 @@ INSERT INTO Desks (
     top_left_x, top_left_y, top_right_x, top_right_y,
     grid_x, grid_y, is_active
 ) VALUES
-(@camera_id_3, @space_id_3, 'F3-D1', 1, 'Floor 3 Study Area', 500, 670, 1, 670, 20, 1062, 500, 1062, 0, 0, TRUE),
-(@camera_id_3, @space_id_3, 'F3-D2', 1, 'Floor 3 Study Area', 500, 600, 10, 600, 10, 10, 500, 10, 1, 0, TRUE),
-(@camera_id_3, @space_id_3, 'F3-D3', 1, 'Floor 3 Study Area', 550, 248, 900, 253, 900, 610, 550, 610, 0, 1, TRUE),
-(@camera_id_3, @space_id_3, 'F3-D4', 1, 'Floor 3 Study Area', 560, 680, 550, 1070, 900, 1100, 900, 700, 1, 1, TRUE);
+(@camera_id_3, @space_id_3, 'F3-D1', 1, 'Floor 3 Study Area', 80, 200, 100, 1600, 1400, 100, 1400, 1600, 0, 0, TRUE),
+(@camera_id_3, @space_id_3, 'F3-D2', 1, 'Floor 3 Study Area', 1600, 200, 1600, 1600, 2800, 300, 2700, 1600, 1, 0, TRUE),
+(@camera_id_3, @space_id_3, 'F3-D3', 1, 'Floor 3 Study Area', 130, 1800, 1300, 1900, 160, 3200, 1300, 3200, 0, 1, TRUE),
+(@camera_id_3, @space_id_3, 'F3-D4', 1, 'Floor 3 Study Area', 1600, 2000, 2800, 2000, 1600, 3200, 2800, 3200, 1, 1, TRUE);
 
 -- ============================================================================
 -- FLOOR 4
@@ -142,10 +142,10 @@ INSERT INTO Desks (
     top_left_x, top_left_y, top_right_x, top_right_y,
     grid_x, grid_y, is_active
 ) VALUES
-(@camera_id_4, @space_id_4, 'F4-D1', 1, 'Floor 4 Study Area', 500, 670, 1, 670, 20, 1062, 500, 1062, 0, 0, TRUE),
-(@camera_id_4, @space_id_4, 'F4-D2', 1, 'Floor 4 Study Area', 500, 600, 10, 600, 10, 10, 500, 10, 1, 0, TRUE),
-(@camera_id_4, @space_id_4, 'F4-D3', 1, 'Floor 4 Study Area', 550, 248, 900, 253, 900, 610, 550, 610, 0, 1, TRUE),
-(@camera_id_4, @space_id_4, 'F4-D4', 1, 'Floor 4 Study Area', 560, 680, 550, 1070, 900, 1100, 900, 700, 1, 1, TRUE);
+(@camera_id_4, @space_id_4, 'F4-D1', 1, 'Floor 4 Study Area', 80, 200, 100, 1600, 1400, 100, 1400, 1600, 0, 0, TRUE),
+(@camera_id_4, @space_id_4, 'F4-D2', 1, 'Floor 4 Study Area', 1600, 200, 1600, 1600, 2800, 300, 2700, 1600, 1, 0, TRUE),
+(@camera_id_4, @space_id_4, 'F4-D3', 1, 'Floor 4 Study Area', 130, 1800, 1300, 1900, 160, 3200, 1300, 3200, 0, 1, TRUE),
+(@camera_id_4, @space_id_4, 'F4-D4', 1, 'Floor 4 Study Area', 1600, 2000, 2800, 2000, 1600, 3200, 2800, 3200, 1, 1, TRUE);
 
 -- ============================================================================
 -- FLOOR 5
@@ -165,10 +165,10 @@ INSERT INTO Desks (
     top_left_x, top_left_y, top_right_x, top_right_y,
     grid_x, grid_y, is_active
 ) VALUES
-(@camera_id_5, @space_id_5, 'F5-D1', 1, 'Floor 5 Study Area', 500, 670, 1, 670, 20, 1062, 500, 1062, 0, 0, TRUE),
-(@camera_id_5, @space_id_5, 'F5-D2', 1, 'Floor 5 Study Area', 500, 600, 10, 600, 10, 10, 500, 10, 1, 0, TRUE),
-(@camera_id_5, @space_id_5, 'F5-D3', 1, 'Floor 5 Study Area', 550, 248, 900, 253, 900, 610, 550, 610, 0, 1, TRUE),
-(@camera_id_5, @space_id_5, 'F5-D4', 1, 'Floor 5 Study Area', 560, 680, 550, 1070, 900, 1100, 900, 700, 1, 1, TRUE);
+(@camera_id_5, @space_id_5, 'F5-D1', 1, 'Floor 5 Study Area', 80, 200, 100, 1600, 1400, 100, 1400, 1600, 0, 0, TRUE),
+(@camera_id_5, @space_id_5, 'F5-D2', 1, 'Floor 5 Study Area', 1600, 200, 1600, 1600, 2800, 300, 2700, 1600, 1, 0, TRUE),
+(@camera_id_5, @space_id_5, 'F5-D3', 1, 'Floor 5 Study Area', 130, 1800, 1300, 1900, 160, 3200, 1300, 3200, 0, 1, TRUE),
+(@camera_id_5, @space_id_5, 'F5-D4', 1, 'Floor 5 Study Area', 1600, 2000, 2800, 2000, 1600, 3200, 2800, 3200, 1, 1, TRUE);
 
 -- ============================================================================
 -- VERIFICATION

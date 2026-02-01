@@ -23,6 +23,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import os
+import fourdesks
 
 
 # Set this to False when deploying to production
@@ -399,7 +400,7 @@ def get_trect_map(camera_id):
 # ============================================================================
 
 # Configuration
-SAMPLES_PER_WINDOW = 20      # Number of samples to collect before making a decision
+SAMPLES_PER_WINDOW = 10      # Number of samples to collect before making a decision
 OCCUPANCY_THRESHOLD = 0.5    # If >= 50% of samples are occupied, classify as occupied
 
 # Sample buffer: {desk_id: [list of boolean samples]}
@@ -419,7 +420,6 @@ def get_last_desk_states():
     Called once at startup.
     """
     global last_committed_states
-
     try:
         from db_interface import OccupancyDatabase
 
@@ -610,12 +610,100 @@ def get_camera_ids():
         return []
 
 
+def get_fourdesks_desk_mapping(camera_id):
+    """
+    Get mapping from fourdesks local desk IDs (1-4) to actual database desk IDs.
+
+    fourdesks uses quadrant-based detection:
+      - Desk 1: top-left (grid 0,0)
+      - Desk 2: top-right (grid 1,0)
+      - Desk 3: bottom-left (grid 0,1)
+      - Desk 4: bottom-right (grid 1,1)
+
+    Returns:
+        Dict mapping fourdesks local ID -> database desk_id
+    """
+    try:
+        from db_interface import OccupancyDatabase
+
+        db = OccupancyDatabase(
+            host="localhost",
+            database="occupancy_db",
+            user="root",
+            password="yazool921"
+        )
+
+        try:
+            cur = db.conn.cursor(dictionary=True)
+            try:
+                cur.execute("""
+                    SELECT desk_id, grid_x, grid_y
+                    FROM Desks
+                    WHERE camera_id = %s AND is_active = TRUE
+                    ORDER BY grid_y, grid_x
+                """, (camera_id,))
+
+                results = cur.fetchall()
+
+                # Map grid position to fourdesks local ID
+                # (0,0)->1, (1,0)->2, (0,1)->3, (1,1)->4
+                grid_to_local = {
+                    (0, 0): 1,
+                    (1, 0): 2,
+                    (0, 1): 3,
+                    (1, 1): 4
+                }
+
+                local_to_desk_id = {}
+                for row in results:
+                    grid_pos = (row['grid_x'], row['grid_y'])
+                    if grid_pos in grid_to_local:
+                        local_id = grid_to_local[grid_pos]
+                        local_to_desk_id[local_id] = row['desk_id']
+
+                return local_to_desk_id
+
+            finally:
+                cur.close()
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"Error getting fourdesks desk mapping for camera {camera_id}: {e}")
+        return {}
+
+
 def process_camera(camera):
     """Process a single camera: detect persons and buffer the results."""
-    image = get_image(camera)
-    deskid_rect_map = get_trect_map(camera)
-    tid_occ_list = get_table_occupations(image, deskid_rect_map)
-    add_sample_to_buffer(tid_occ_list)
+
+    if camera > 6:
+        # Use fourdesks.py with fourdesks.jpg for cameras with ID > 6
+        image = get_image_from_file(camera, os.path.join(SCRIPT_DIR, "fourdesks.jpg"))
+        if image is not None:
+            h, w = image.shape[:2]
+            fourdesks.update_dimensions(w, h)
+
+            # Get mapping from fourdesks local IDs to actual desk IDs
+            local_to_desk_id = get_fourdesks_desk_mapping(camera)
+
+            if local_to_desk_id:
+                # Check occupancy using fourdesks (returns {1: bool, 2: bool, 3: bool, 4: bool})
+                occupancy_results = fourdesks.check_all_desks(image, use_baseline=False)
+
+                # Map results to actual desk IDs
+                tid_occ_list = []
+                for local_id, is_occupied in occupancy_results.items():
+                    if local_id in local_to_desk_id:
+                        actual_desk_id = local_to_desk_id[local_id]
+                        tid_occ_list.append((actual_desk_id, is_occupied))
+
+                add_sample_to_buffer(tid_occ_list)
+    else:
+        # Use standard polygon-based detection for cameras with ID <= 6
+        image = get_image(camera)
+        deskid_rect_map = get_trect_map(camera)
+        tid_occ_list = get_table_occupations(image, deskid_rect_map)
+        add_sample_to_buffer(tid_occ_list)
 
 
 if __name__ == "__main__":
