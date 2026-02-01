@@ -647,5 +647,271 @@ def find_available_space():
         db.close()
 
 
+def get_predicted_desk_status(desk_id: int, target_day: int, target_hour: int, hour_range: int = 1) -> dict:
+    """
+    Predict desk occupancy based on historical data for the given day of week and hour.
+
+    Args:
+        desk_id: The desk ID
+        target_day: Day of week (1=Sunday, 2=Monday, ..., 7=Saturday in MySQL DAYOFWEEK)
+        target_hour: Hour of day (0-23)
+        hour_range: Hours before/after to include for more data (default ±1 hour)
+
+    Returns:
+        Dictionary with predicted status information
+    """
+    db = OccupancyDatabase(**DB_CONFIG)
+    try:
+        cur = db.conn.cursor(dictionary=True)
+        try:
+            # Query historical data for this day/hour range
+            # Weight recent data more heavily using exponential decay
+            cur.execute("""
+                SELECT
+                    is_occupied,
+                    timestamp,
+                    DATEDIFF(NOW(), timestamp) as days_ago
+                FROM Desk_Occupancy_Logs
+                WHERE desk_id = %s
+                  AND DAYOFWEEK(timestamp) = %s
+                  AND HOUR(timestamp) BETWEEN %s AND %s
+                ORDER BY timestamp DESC
+                LIMIT 500
+            """, (desk_id, target_day, max(0, target_hour - hour_range), min(23, target_hour + hour_range)))
+
+            logs = cur.fetchall()
+
+            if not logs:
+                # No historical data - return unknown/optimistic
+                return {
+                    'desk_id': desk_id,
+                    'predicted_occupied': False,
+                    'confidence': 0.0,
+                    'sample_count': 0,
+                    'data_quality': 'none'
+                }
+
+            # Calculate weighted average - more recent data counts more
+            # Weight = 0.95^(days_ago / 7) - halves roughly every 10 weeks
+            total_weight = 0
+            occupied_weight = 0
+
+            for log in logs:
+                days_ago = log['days_ago'] or 0
+                weight = 0.95 ** (days_ago / 7)  # Decay factor
+                total_weight += weight
+                if log['is_occupied']:
+                    occupied_weight += weight
+
+            predicted_occupancy = occupied_weight / total_weight if total_weight > 0 else 0
+            is_predicted_occupied = predicted_occupancy >= 0.5
+
+            # Determine data quality
+            sample_count = len(logs)
+            if sample_count >= 20:
+                data_quality = 'high'
+            elif sample_count >= 5:
+                data_quality = 'medium'
+            else:
+                data_quality = 'low'
+
+            return {
+                'desk_id': desk_id,
+                'predicted_occupied': is_predicted_occupied,
+                'confidence': round(abs(predicted_occupancy - 0.5) * 2, 2),  # 0-1 scale
+                'occupancy_probability': round(predicted_occupancy, 2),
+                'sample_count': sample_count,
+                'data_quality': data_quality
+            }
+        finally:
+            cur.close()
+    finally:
+        db.close()
+
+
+@app.route('/api/find-space/predict', methods=['GET'])
+def find_predicted_space():
+    """Find the nearest space with predicted available seats for a future time"""
+    from datetime import datetime
+
+    try:
+        group_size = int(request.args.get('group_size', 1))
+        user_lat = float(request.args.get('latitude'))
+        user_lng = float(request.args.get('longitude'))
+        datetime_str = request.args.get('datetime')  # ISO format: 2026-02-03T14:00
+
+        if not datetime_str:
+            return jsonify({'error': 'datetime parameter is required (ISO format: YYYY-MM-DDTHH:MM)'}), 400
+
+        # Parse the datetime
+        try:
+            target_datetime = datetime.fromisoformat(datetime_str)
+        except ValueError:
+            return jsonify({'error': 'Invalid datetime format. Use ISO format: YYYY-MM-DDTHH:MM'}), 400
+
+        # Validate it's in the future
+        if target_datetime <= datetime.now():
+            return jsonify({'error': 'datetime must be in the future'}), 400
+
+        # Convert to MySQL DAYOFWEEK (1=Sunday, 2=Monday, ..., 7=Saturday)
+        # Python weekday(): 0=Monday, 6=Sunday
+        python_weekday = target_datetime.weekday()
+        mysql_dayofweek = ((python_weekday + 1) % 7) + 1  # Convert to MySQL format
+        target_hour = target_datetime.hour
+
+    except (TypeError, ValueError) as e:
+        return jsonify({'error': f'Invalid parameters: {str(e)}'}), 400
+
+    if group_size < 1:
+        return jsonify({'error': 'group_size must be at least 1'}), 400
+
+    from math import radians, cos, sin, sqrt, atan2
+
+    db = OccupancyDatabase(**DB_CONFIG)
+    try:
+        cur = db.conn.cursor(dictionary=True)
+        try:
+            # Get all buildings with their locations
+            cur.execute("""
+                SELECT building_id, name, map_latitude, map_longitude, address
+                FROM Building
+                ORDER BY name
+            """)
+            buildings = cur.fetchall()
+
+            best_match = None
+            best_distance = float('inf')
+
+            for building in buildings:
+                # Calculate distance from user to building (haversine formula)
+                lat1, lon1 = user_lat, user_lng
+                lat2, lon2 = float(building['map_latitude']), float(building['map_longitude'])
+
+                R = 6371  # Earth radius in km
+                dlat = radians(lat2 - lat1)
+                dlon = radians(lon2 - lon1)
+                a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+                c = 2 * atan2(sqrt(a), sqrt(1-a))
+                distance = R * c
+
+                # Get all spaces in this building
+                cur.execute("""
+                    SELECT space_id, name, grid_width, grid_height, total_capacity
+                    FROM Space
+                    WHERE building_id = %s
+                    ORDER BY name
+                """, (building['building_id'],))
+                spaces = cur.fetchall()
+
+                for space in spaces:
+                    # Get all desks for this space
+                    cur.execute("""
+                        SELECT desk_id, name, grid_x, grid_y, capacity
+                        FROM Desks
+                        WHERE space_id = %s AND is_active = TRUE
+                        ORDER BY desk_id
+                    """, (space['space_id'],))
+                    desks = cur.fetchall()
+
+                    # Get PREDICTED occupancy status for each desk
+                    desk_statuses = {}
+                    total_confidence = 0
+                    total_samples = 0
+
+                    for desk in desks:
+                        prediction = get_predicted_desk_status(
+                            desk['desk_id'],
+                            mysql_dayofweek,
+                            target_hour,
+                            hour_range=1
+                        )
+                        desk_statuses[(desk['grid_x'], desk['grid_y'])] = {
+                            'desk_id': desk['desk_id'],
+                            'name': desk['name'],
+                            'occupied': prediction['predicted_occupied'],
+                            'confidence': prediction['confidence'],
+                            'capacity': desk['capacity']
+                        }
+                        total_confidence += prediction['confidence']
+                        total_samples += prediction['sample_count']
+
+                    avg_confidence = total_confidence / len(desks) if desks else 0
+
+                    # Find available adjacent seats for the group (same logic as real-time)
+                    if group_size == 1:
+                        available = [d for d in desk_statuses.values() if not d['occupied']]
+                        if available:
+                            match = {
+                                'building_id': building['building_id'],
+                                'building_name': building['name'],
+                                'building_address': building['address'],
+                                'space_id': space['space_id'],
+                                'space_name': space['name'],
+                                'distance_km': round(distance, 2),
+                                'predicted_available_seats': len(available),
+                                'recommended_desks': [available[0]['name']],
+                                'desk_ids': [available[0]['desk_id']],
+                                'prediction_confidence': round(avg_confidence, 2),
+                                'total_historical_samples': total_samples,
+                                'is_prediction': True,
+                                'predicted_for': target_datetime.isoformat()
+                            }
+                            if distance < best_distance:
+                                best_distance = distance
+                                best_match = match
+                    else:
+                        # Group - find adjacent available seats using BFS
+                        available_positions = {pos for pos, desk in desk_statuses.items() if not desk['occupied']}
+
+                        def find_adjacent_group(positions, size):
+                            for start_pos in positions:
+                                visited = {start_pos}
+                                queue = [start_pos]
+                                while queue and len(visited) < size:
+                                    x, y = queue.pop(0)
+                                    for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                                        new_pos = (x + dx, y + dy)
+                                        if new_pos in positions and new_pos not in visited:
+                                            visited.add(new_pos)
+                                            queue.append(new_pos)
+                                if len(visited) >= size:
+                                    return visited
+                            return None
+
+                        adjacent_group = find_adjacent_group(available_positions, group_size)
+
+                        if adjacent_group:
+                            desk_names = [desk_statuses[pos]['name'] for pos in adjacent_group]
+                            desk_ids = [desk_statuses[pos]['desk_id'] for pos in adjacent_group]
+                            match = {
+                                'building_id': building['building_id'],
+                                'building_name': building['name'],
+                                'building_address': building['address'],
+                                'space_id': space['space_id'],
+                                'space_name': space['name'],
+                                'distance_km': round(distance, 2),
+                                'predicted_available_seats': len(available_positions),
+                                'recommended_desks': sorted(desk_names)[:group_size],
+                                'desk_ids': sorted(desk_ids)[:group_size],
+                                'prediction_confidence': round(avg_confidence, 2),
+                                'total_historical_samples': total_samples,
+                                'is_prediction': True,
+                                'predicted_for': target_datetime.isoformat()
+                            }
+                            if distance < best_distance:
+                                best_distance = distance
+                                best_match = match
+
+            if best_match:
+                return jsonify(best_match)
+            else:
+                return jsonify({'error': f'No predicted available space found for group size {group_size} at {target_datetime.isoformat()}'}), 404
+
+        finally:
+            cur.close()
+    finally:
+        db.close()
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000, host='0.0.0.0')
